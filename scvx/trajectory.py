@@ -1,10 +1,6 @@
-import cvxpy as cp
+import cvxpy as cvx
 import numpy as np
 from dataclasses import dataclass
-
-# These will be agnostic of trajectory scaling/units
-# Scaling must be handled by the solver when it calls the init func and returns solutions
-# The exact handshake between solver and init will have to be determined
 
 @dataclass(frozen=True)
 class Trajectory:
@@ -32,18 +28,18 @@ class SymbolicTrajectory:
     def __init__(self, K: int, nx: int, nu: int, ns: int = 0):
         self.K, self.nx, self.nu, self.ns = K, nx, nu, ns
 
-        self.x = cp.Variable((K, nx), name='x')
-        self.u = cp.Variable((K, nu), name='u')
+        self.x = cvx.Variable((K, nx), name='x')
+        self.u = cvx.Variable((K, nu), name='u')
         
         if ns > 0:
-            self.sigma = cp.Variable(ns, name='sigma')
-            self.sigma_last = cp.Parameter(ns, name='sigma_last')
+            self.sigma = cvx.Variable(ns, name='sigma')
+            self.sigma_last = cvx.Parameter(ns, name='sigma_last')
         else:
             self.sigma = np.zeros(0)
             self.sigma_last = np.zeros(0)
 
-        self.x_last = cp.Parameter((K, nx), name='x_last')
-        self.u_last = cp.Parameter((K, nu), name='u_last')
+        self.x_last = cvx.Parameter((K, nx), name='x_last')
+        self.u_last = cvx.Parameter((K, nu), name='u_last')
 
         self.dx = self.x - self.x_last
         self.du = self.u - self.u_last
@@ -58,7 +54,7 @@ class SymbolicTrajectory:
         if self.ns > 0:
             self.sigma_last.value = traj.sigma
 
-    def get_solution(self, update_params: bool = True) -> Trajectory:
+    def get_result(self, update_params: bool = True) -> Trajectory:
         """
         Returns the current solution as a Trajectory object.
         """
@@ -75,3 +71,11 @@ class SymbolicTrajectory:
             self.set_parameters(new_traj)
 
         return new_traj
+
+# placeholder for solution package
+@dataclass
+class Solution:
+    trajectory: Trajectory
+    cost: float
+    stc: np.ndarray
+    status: bool
