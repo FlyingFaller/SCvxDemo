@@ -155,21 +155,20 @@ class NamedArray(np.ndarray, NamedMixin):
         self._named_axis = getattr(obj, '_named_axis', -1)
 
     def __getitem__(self, key):
-        # 1. Translate strings and calculate new shape/wrapper state
         new_key, drop_wrapper, next_axis, next_names = self._resolve_key(key, self.shape)
-        
-        # 2. Get the result using standard NumPy indexing
         result = super().__getitem__(new_key)
-        
-        # 3. Unpack or update wrapper
+
         if drop_wrapper or not isinstance(result, np.ndarray):
             return np.asarray(result)
             
-        # If we keep the wrapper, update its axis and names mapping
         if isinstance(result, NamedArray):
             result._init_names(next_names, next_axis)
             
         return result
+    
+    def __setitem__(self, key, value):
+        new_key, _, _, _ = self._resolve_key(key, self.shape)
+        super().__setitem__(new_key, value)
 
 
 # --- 2. CVXPY Wrappers ---
