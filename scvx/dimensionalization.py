@@ -69,12 +69,12 @@ class DimProp(BaseScaledProp):
     def dim(self):
         return self.value
     @property
-    def ndim(self):
+    def nondim(self):
         return self.value / self._get_broadcastable_scalar()
 
 class NonDimProp(BaseScaledProp):
     @property
-    def ndim(self):
+    def nondim(self):
         return self.value
     @property
     def dim(self):
