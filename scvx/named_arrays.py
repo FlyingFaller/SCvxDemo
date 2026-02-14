@@ -27,11 +27,12 @@ class NamedMixin:
 
     def _translate_slice(self, item: slice, is_named_axis: bool):
         """Helper to translate a slice, making string boundaries inclusive."""
-        # 1. Let _translate_idx handle all validation, KeyErrors, and int-mapping
+        
         start = self._translate_idx(item.start, is_named_axis)
         stop = self._translate_idx(item.stop, is_named_axis)
         
-        # 2. Only apply inclusive logic if the stop boundary was explicitly a string
+        # For stop index specifically we break from numpy and do inclusive indexing
+        # This makes more sense for natural language based slicing. 
         if isinstance(item.stop, str):
             step = item.step if item.step is not None else 1
             if step > 0:
@@ -58,6 +59,7 @@ class NamedMixin:
         
         elif isinstance(item, (list, tuple)):
             # Translate elements but preserve the original container type (list or tuple)
+            # Important for fancy indexing 
             return type(item)(self._translate_idx(k, is_named_axis) for k in item)
         
         return item
@@ -66,24 +68,26 @@ class NamedMixin:
         """
         Top-level loop that iterates through the indexing dimensions.
         """
-        ndim = len(shape)
+        # If the named axis has already been burned none of this logic matters
+        if self._named_axis is None:
+            return key, None, []
+        
         # Support negative axes safely
+        ndim = len(shape)
         named_axis = self._named_axis % ndim if ndim > 0 else 0
 
-        # 1. Convert the key to a key tuple with appropriate padding
+        # Make the key a tuple
         if not isinstance(key, tuple):
             if self._is_named_query(key):
                 # Special Case: Single named query -> Auto-pad to reach named axis
-                # (If named_axis is 0, the padding evaluates to an empty tuple)
                 key_tuple = (slice(None),) * named_axis + (key,)
             else:
                 key_tuple = (key,)
         else:
             key_tuple = key
 
-        # 1.5. CLEVER TRICK: Expand Ellipsis (...) BEFORE looping.
-        # This replaces the first ... with the exact number of slice(None) needed,
-        # so we don't have to do complex dimension math during the loop.
+        # Expand ellipses so the key tuple matches data dimension.
+        # This way we don't have to worry about them later.
         if Ellipsis in key_tuple:
             # Everything except None and ... consumes an input dimension
             consumed_dims = sum(1 for k in key_tuple if k is not None and k is not Ellipsis)
@@ -92,37 +96,36 @@ class NamedMixin:
             e_idx = key_tuple.index(Ellipsis)
             key_tuple = key_tuple[:e_idx] + (slice(None),) * missing_dims + key_tuple[e_idx + 1:]
 
-        # 2. Iterate through dimensions
+        # Loop through keys and handle them induvidually
         new_key = []
         current_axis = 0
         new_named_axis = named_axis
-        drop_wrapper = False
         new_names = self._names_list
 
         for item in key_tuple:
-            # --- None (np.newaxis) Handling ---
             # None adds an output dimension but doesn't consume an input dimension
             if item is None:
                 new_key.append(None)
                 if current_axis <= named_axis:
                     new_named_axis += 1
-                continue # Skip the rest, don't advance current_axis
+                continue 
 
-            # Check if our current loop matches the named axis
+            # Resolve induvidual key
             is_named_axis = (current_axis == named_axis)
-            
             resolved_idx = self._translate_idx(item, is_named_axis)
             new_key.append(resolved_idx)
-            
-            # --- Axis Tracking & Wrapper Logic ---
             is_scalar = isinstance(resolved_idx, (int, np.integer))
 
+            # Handle axis tracking
             if is_named_axis:
                 if is_scalar: 
-                    # We are selecting exactly one of the idx in the named_axis
-                    drop_wrapper = True
+                    # We are selecting within the named axis and completely eliminating it
+                    new_named_axis = None
+                    new_names = []
                 elif self._names_list:
                     # Figure out which names remain because we are slicing or selecting multiple 
+                    # We have to make tuples lists so they will fancy index correctly as the first
+                    # indices in the key. Quirk of numpy indexing. 
                     names_idx = list(resolved_idx) if isinstance(resolved_idx, tuple) else resolved_idx
                     new_names = np.array(self._names_list)[names_idx].tolist()
             elif is_scalar and current_axis < named_axis:
@@ -131,16 +134,7 @@ class NamedMixin:
 
             current_axis += 1
 
-        # 3. Return to original format (single item or tuple)
-        if not isinstance(key, tuple) and len(new_key) == 1:
-            final_key = new_key[0]
-        else:
-            final_key = tuple(new_key)
-
-        return final_key, drop_wrapper, new_named_axis, new_names
-
-
-# --- 1. NumPy Wrapper ---
+        return tuple(new_key), new_named_axis, new_names
 
 class NamedArray(np.ndarray, NamedMixin):
     def __new__(cls, input_array, names=None, axis=-1):
@@ -155,11 +149,8 @@ class NamedArray(np.ndarray, NamedMixin):
         self._named_axis = getattr(obj, '_named_axis', -1)
 
     def __getitem__(self, key):
-        new_key, drop_wrapper, next_axis, next_names = self._resolve_key(key, self.shape)
+        new_key, next_axis, next_names = self._resolve_key(key, self.shape)
         result = super().__getitem__(new_key)
-
-        if drop_wrapper or not isinstance(result, np.ndarray):
-            return np.asarray(result)
             
         if isinstance(result, NamedArray):
             result._init_names(next_names, next_axis)
@@ -170,9 +161,6 @@ class NamedArray(np.ndarray, NamedMixin):
         new_key, _, _, _ = self._resolve_key(key, self.shape)
         super().__setitem__(new_key, value)
 
-
-# --- 2. CVXPY Wrappers ---
-
 class NamedVariable(cvx.Variable, NamedMixin):
     def __init__(self, shape, names=None, axis=-1, **kwargs):
         super().__init__(shape, **kwargs)
@@ -180,8 +168,6 @@ class NamedVariable(cvx.Variable, NamedMixin):
 
     def __getitem__(self, key):
         new_key, *_ = self._resolve_key(key, self.shape)
-        # CVXPY natively returns a generic Expression (Index atom) when sliced,
-        # so it naturally un-wraps itself.
         return super().__getitem__(new_key)
 
 class NamedParameter(cvx.Parameter, NamedMixin):
