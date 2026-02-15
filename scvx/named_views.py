@@ -158,7 +158,7 @@ class NamedArray(np.ndarray, NamedMixin):
         return result
     
     def __setitem__(self, key, value):
-        new_key, _, _, _ = self._resolve_key(key, self.shape)
+        new_key, *_ = self._resolve_key(key, self.shape)
         super().__setitem__(new_key, value)
 
 class NamedVariable(cvx.Variable, NamedMixin):
