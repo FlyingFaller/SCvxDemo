@@ -1,15 +1,16 @@
 import cvxpy as cvx
 import numpy as np
 from dataclasses import dataclass
+from named_views import NamedArray, NamedVariable, NamedParameter
 
 @dataclass(frozen=True)
 class Trajectory:
     """
     Container for numerical trajectory data. 
     """
-    x: np.ndarray    
-    u: np.ndarray    
-    sigma: np.ndarray
+    x: NamedArray    
+    u: NamedArray    
+    sigma: NamedArray
 
     @classmethod
     def zeros(cls, K, nx, nu, ns=0):
