@@ -1,13 +1,26 @@
 import numpy as np
-from labeled_views import LabeledArray, LabeledParameter, LabeledVariable
+from labeled_views import LabeledArray, LabeledParameter, LabeledVariable, LabeledExpression
 from labeled_dim_view import LabeledDimArray
 import cvxpy as cvx
 from dimmed_views import DimProp
 
-states = ['t', 'px', 'py', 'pz']
-scalars = [1, 2, 3, 4]
-data= np.random.randint(0, 10, (10, 4))
+# states = ['t', 'px', 'py', 'pz']
+# scalars = [1, 2, 3, 4]
+# data= np.random.randint(0, 10, (10, 4))
 
-x = LabeledDimArray(data, scalars, states, axis=-1)
+# x = LabeledDimArray(data, scalars, states, axis=-1)
 
-print(x.nondim)
+# print(x.nondim)
+
+states = ['A', 'B', 'C']
+data = np.arange(9).reshape((3,3))
+x = LabeledArray(data)
+xparam = LabeledParameter((3,3), states)
+xvar = LabeledVariable((3,3), states)
+
+dx = LabeledExpression(xvar - xparam, states)
+print(dx.shape)
+print(dx['A'].shape)
+print((xvar-xparam)[:, 0].name())
+# print(cvx.norm(dx['A']))
+# print(dx.is_constant())

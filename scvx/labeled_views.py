@@ -1,6 +1,9 @@
 import numpy as np
 import cvxpy as cvx
 
+import cvxpy as cvx
+from cvxpy.reductions.dcp2cone.canonicalizers import CANON_METHODS
+
 class LabeledMixin:
     """
     Mixin for labeled dimension support.
@@ -178,3 +181,67 @@ class LabeledParameter(cvx.Parameter, LabeledMixin):
     def __getitem__(self, key):
         new_key, *_ = self._resolve_key(key, self.shape)
         return super().__getitem__(new_key)
+
+class LabeledExpression(cvx.Expression, LabeledMixin):
+    """
+    A robust wrapper that satisfies the CVXPY Expression contract 
+    by delegating all properties to the underlying expression.
+    """
+    def __init__(self, expr, labels=None, axis=-1):
+        self._expr = cvx.Expression.cast_to_const(expr)
+        
+        # 1. Initialize Labels
+        self._init_labels(labels, axis)
+        
+        # 2. Initialize CVXPY Expression (Must set shape and args)
+        super().__init__()
+        self.args = [self._expr] # Registers the child for the solver graph
+
+    def __getattr__(self, attr):
+        # This is only called if 'attr' is NOT found on self.
+        # It forwards the request to the underlying expression.
+        return getattr(self._expr, attr)
+
+    # --- The Boilerplate (Delegation) ---
+    def name(self): return self._expr.name()
+    def is_convex(self): return self._expr.is_convex()
+    def is_concave(self): return self._expr.is_concave()
+    def is_log_log_convex(self): return self._expr.is_log_log_convex()
+    def is_log_log_concave(self): return self._expr.is_log_log_concave()
+    def is_nonneg(self): return self._expr.is_nonneg()
+    def is_nonpos(self): return self._expr.is_nonpos()
+    def is_complex(self): return self._expr.is_complex()
+    def is_dpp(self, context='dcp'): return self._expr.is_dpp(context)
+    
+    # Properties must be forwarded explicitly
+    @property
+    def domain(self): return self._expr.domain
+    @property
+    def grad(self): return self._expr.grad
+    @property
+    def value(self): return self._expr.value
+    @property
+    def shape(self): return self._expr.shape
+    @property
+    def is_imag(self): return self._expr.is_imag
+
+    # --- Labeled Slicing Logic ---
+    def __getitem__(self, key):
+        # 1. Resolve key via Mixin
+        new_key, next_axis, next_labels = self._resolve_key(key, self.shape)
+        
+        # 2. Slice the child expression
+        sliced_expr = self._expr[new_key]
+        
+        # 3. Re-wrap if it's still an Expression and we have labels
+        if isinstance(sliced_expr, cvx.Expression) and next_axis is not None:
+             return LabeledExpression(sliced_expr, next_labels, next_axis)
+        
+        return sliced_expr
+
+# --- Critical: Register Canonicalization ---
+# This tells CVXPY: "When you solve, replace LabeledExpression with its child."
+def labeled_canon(expr, args):
+    return args[0], []
+
+CANON_METHODS[LabeledExpression] = labeled_canon
