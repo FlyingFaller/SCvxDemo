@@ -1,16 +1,16 @@
 import numpy as np
-from named_views import NamedArray
+from labeled_views import LabeledArray
 
-class NamedDimArray(NamedArray):
+class LabeledDimArray(LabeledArray):
     """
-    Combines NamedArray and dimensional scaling properties.
-    Always returns a NamedDimArray instance, even for scalar slices, 
+    Combines LabeledArray and dimensional scaling properties.
+    Always returns a LabeledDimArray instance, even for scalar slices, 
     to preserve .dim and .nondim functionality.
     """
-    def __new__(cls, data, scalar=1, names=None, axis=-1, broadcast=True):
-        # Create underlying NamedArray
-        named_axis = axis[0] if hasattr(axis, '__iter__') else axis
-        obj = super().__new__(cls, data, names=names, axis=named_axis)
+    def __new__(cls, data, scalar=1, labels=None, axis=-1, broadcast=True):
+        # Create underlying LabeledArray
+        labeled_axis = axis[0] if hasattr(axis, '__iter__') else axis
+        obj = super().__new__(cls, data, labels=labels, axis=labeled_axis)
         # Initialize broadcast scalar
         if broadcast:
             obj._scalar = obj._broadcast_scalar(scalar, axis)
@@ -69,20 +69,20 @@ class NamedDimArray(NamedArray):
         return np.broadcast_to(reshaped_scl, dat_shape)
 
     def __array_finalize__(self, obj):
-        super().__array_finalize__(obj) # Finalize NamedArray
+        super().__array_finalize__(obj) # Finalize LabeledArray
 
     def __getitem__(self, key):
-        new_key, next_axis, next_names = self._resolve_key(key, self.shape)
+        new_key, next_axis, next_labels = self._resolve_key(key, self.shape)
         # Directly call __getitem__ for underlying ndarray so _resolve_key is not called twice
-        data_slice = super(NamedArray, self).__getitem__(new_key)
+        data_slice = super(LabeledArray, self).__getitem__(new_key)
         scalar_slice = self._scalar[new_key] # slice the scalar with the data slicing
 
-        # Always return NamedDimArray so dim and nondim props are accessible
-        # Pass _resolve_key results to __new__ which calls NamedArray.__new__ which calls
-        # the _init_names function we need.
-        return NamedDimArray(data_slice, 
+        # Always return LabeledDimArray so dim and nondim props are accessible
+        # Pass _resolve_key results to __new__ which calls LabeledArray.__new__ which calls
+        # the _init_labels function we need.
+        return LabeledDimArray(data_slice, 
                              scalar=scalar_slice, 
-                             names=next_names, 
+                             labels=next_labels, 
                              axis=next_axis, 
                              broadcast=False)
 
