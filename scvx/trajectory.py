@@ -1,23 +1,23 @@
 import cvxpy as cvx
 import numpy as np
 from dataclasses import dataclass
-from named_views import NamedArray, NamedVariable, NamedParameter
+from labeled_views import LabeledArray, LabeledVariable, LabeledParameter, LabeledExpression
 
 @dataclass(frozen=True)
 class Trajectory:
     """
     Container for numerical trajectory data. 
     """
-    x: NamedArray    
-    u: NamedArray    
-    sigma: NamedArray
+    x: LabeledArray    
+    u: LabeledArray    
+    sigma: LabeledArray
 
     @classmethod
-    def zeros(cls, K, nx, nu, ns=0):
+    def zeros(cls, K, nx, nu, ns=0, xlabels=None, ulabels=None, slabels=None):
         return cls(
-            x=np.zeros((K, nx)),
-            u=np.zeros((K, nu)),
-            sigma=np.zeros(ns)
+            x=LabeledArray(np.zeros((K, nx)), xlabels),
+            u=LabeledArray(np.zeros((K, nu)), ulabels),
+            sigma=LabeledArray(np.zeros(ns), slabels)
         )
 
 # Sigma of size zero implise a fixed-final-time problem
@@ -26,25 +26,27 @@ class Trajectory:
 # time
 
 class SymbolicTrajectory:
-    def __init__(self, K: int, nx: int, nu: int, ns: int = 0):
+    def __init__(self, K: int, nx: int, nu: int, ns: int = 0,
+                 xlabels = None, ulabels = None, slabels = None):
         self.K, self.nx, self.nu, self.ns = K, nx, nu, ns
+        self.xlabels, self.ulabels, self.slabels = xlabels, ulabels, slabels
 
-        self.x = cvx.Variable((K, nx), name='x')
-        self.u = cvx.Variable((K, nu), name='u')
+        self.x = LabeledVariable((K, nx), labels=xlabels, name='x')
+        self.u = LabeledVariable((K, nu), labels=ulabels, name='u')
         
         if ns > 0:
-            self.sigma = cvx.Variable(ns, name='sigma')
-            self.sigma_last = cvx.Parameter(ns, name='sigma_last')
+            self.sigma = LabeledVariable(ns, labels=slabels, name='sigma')
+            self.sigma_last = LabeledParameter(ns, labels=slabels, name='sigma_last')
         else:
             self.sigma = np.zeros(0)
             self.sigma_last = np.zeros(0)
 
-        self.x_last = cvx.Parameter((K, nx), name='x_last')
-        self.u_last = cvx.Parameter((K, nu), name='u_last')
+        self.x_last = LabeledParameter((K, nx), labels=xlabels, name='x_last')
+        self.u_last = LabeledParameter((K, nu), labels=ulabels, name='u_last')
 
-        self.dx = self.x - self.x_last
-        self.du = self.u - self.u_last
-        self.dsigma = self.sigma - self.sigma_last
+        self.dx = LabeledExpression(self.x - self.x_last, labels=xlabels)
+        self.du = LabeledExpression(self.u - self.u_last, labels=ulabels)
+        self.dsigma = LabeledExpression(self.sigma - self.sigma_last, labels=slabels)
 
 
     def set_parameters(self, traj: Trajectory):
@@ -63,9 +65,9 @@ class SymbolicTrajectory:
             raise RuntimeError("Variables are None. Has the problem been solved?")
 
         new_traj = Trajectory(
-            x=self.x.value,
-            u=self.u.value,
-            sigma=self.sigma.value if self.ns > 0 else np.zeros(0)
+            x=LabeledArray(self.x.value, labels=self.xlabels),
+            u=LabeledArray(self.u.value, labels=self.ulabels),
+            sigma=LabeledArray(self.sigma.value, labels=self.slabels) if self.ns > 0 else np.zeros(0)
         )
 
         if update_params:
