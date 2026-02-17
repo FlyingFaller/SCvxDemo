@@ -35,8 +35,8 @@ class SymbolicTrajectory:
         self.u = LabeledVariable((K, nu), labels=ulabels, name='u')
         
         if ns > 0:
-            self.sigma = LabeledVariable(ns, labels=slabels, name='sigma')
-            self.sigma_last = LabeledParameter(ns, labels=slabels, name='sigma_last')
+            self.sigma = LabeledVariable((ns), labels=slabels, name='sigma')
+            self.sigma_last = LabeledParameter((ns), labels=slabels, name='sigma_last')
         else:
             self.sigma = np.zeros(0)
             self.sigma_last = np.zeros(0)
