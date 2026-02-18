@@ -13,12 +13,12 @@ class Model(ABC):
                                     Callable[[LabeledArray, LabeledArray, LabeledArray], np.ndarray[float]],
                                     Callable[[LabeledArray, LabeledArray, LabeledArray], np.ndarray[float]]]:
         """
-        [Called Once] Returns the linearized dynamics as a tuple of callables: A(s, x, u), B(s, x, u), S(s, x, u), and f(s, x, u). 
+        [Called Once] Returns the linearized dynamics as a tuple of callables: F(s, x, u), A(s, x, u), B(s, x, u), and S(s, x, u). 
         The arguments s, x, and u passed to each callable are 1D auxilliary, state, and control vectors. Note: the discretizations 
         must be temporally normalized for all problems times fixed- and free-final-time. The discretizations must also be constructed
         with normalized and nondimensionalized coefficients appropriately. 
         
-        :return: (A(s, x, u), B(s, x, u), S(s, x, u), f(s, x, u))
+        :return: (F(s, x, u), A(s, x, u), B(s, x, u), S(s, x, u))
         """
         raise NotImplementedError
 
