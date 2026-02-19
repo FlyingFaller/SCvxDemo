@@ -51,7 +51,7 @@ class Integrator:
         x0 = x[:, :-1] # (nx, K-1)
         sol = solve_ivp(fun = self._dxdt_piecewise,
                         t_span = (0, self.dt),
-                        y0=x0.ravel,
+                        y0=x0.ravel(),
                         args=(u, s[:, :-1]))
         xf = sol.y[:, -1].reshape((self.nx, self.K-1))
         return LabeledArray(xf.T, labels=self.xlabels)
