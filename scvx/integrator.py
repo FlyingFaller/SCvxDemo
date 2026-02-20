@@ -40,10 +40,8 @@ class Integrator:
 
         self.N = np.sum(self.sizes)
 
-    def integrate_piecewise(self, traj: Trajectory) -> LabeledArray:
-        """Integrate the nonlinear dynamics piecewise across each subinterval."""
-        # Need to integrate F(s, x, u) for all i->i+1 K-1 times
-        # Best way to do this is to stack x[:-1] = y0 and then create a dydt where ui and xi are passed in vectorized to F
+    def integrate_multiple_shooting(self, traj: Trajectory) -> LabeledArray:
+        """Integrate the nonlinear dynamics piecewise across each subinterval (Multiple Shooting)."""
         s = np.tile(traj.sigma, (self.K, 1)).T # (ns, K)
         x = traj.x.T                           # (nx, K)
         u = traj.u.T                           # (nu, K)
@@ -51,56 +49,57 @@ class Integrator:
         x0 = x[:, :-1] # (nx, K-1)
         xf = np.zeros_like(x) # (nx, K)
         xf[:, 0] = x[:, 0] # Set first element
-        sol = solve_ivp(fun = self._dxdt_piecewise,
+        
+        # Start and end controls for the interval
+        u0 = u[:, :-1] # (nu, K-1)
+        u1 = u[:, 1:]  # (nu, K-1)
+        
+        sol = solve_ivp(fun = self._dxdt,
                         t_span = (0, self.dt),
                         y0=x0.ravel(),
-                        args=(u, s[:, :-1]))
+                        args=(u0, u1, s[:, :-1]))
         xf[:, 1:] = sol.y[:, -1].reshape((self.nx, self.K-1)) # Set last elements
         return LabeledArray(xf.T, labels=self.xlabels)
 
-    def _dxdt_piecewise(self, 
-                        t: float, 
-                        xi_flat: np.ndarray, 
-                        u: np.ndarray, 
-                        s: np.ndarray) -> np.ndarray:
-        xi = xi_flat.reshape((self.nx, self.K-1))
-
-        # FOH on controls
-        alpha = (self.dt - t) / self.dt
-        beta = t / self.dt
-        ui = alpha*u[:, :-1] + beta*u[:, 1:] # (nu, K-1)
-
-        # Calculate and return
-        Fi = self.F(s, xi, ui).reshape((self.nx, self.K-1))
-        return Fi.ravel()
-
-    def integrate_continuous(self, traj: Trajectory) -> LabeledArray:
-        """Integrate the nonlinear dynamics continously across the time horizon from the initial state."""
-        s = traj.sigma
+    def integrate_single_shooting(self, traj: Trajectory) -> LabeledArray:
+        """Integrate the nonlinear dynamics sequentially across the time horizon (Single Shooting)."""
+        s = traj.sigma[:, None] # Use [:, None] to columnate
         x = traj.x
         u = traj.u
-        xf = np.zeros_like(x)
+        xf = np.zeros_like(x) # (K, nx)
         xf[0] = x[0]
+        
         for k in range(self.K-1):
-            sol = solve_ivp(fun = self._dxdt_continuous,
+            # Pass controls as column vectors using [:, None]
+            u0_col = u[k][:, None]
+            u1_col = u[k+1][:, None]
+            
+            sol = solve_ivp(fun = self._dxdt,
                             t_span = (0, self.dt),
-                            y0=xf[k],
-                            args=(u[k], u[k+1], s))
+                            y0=xf[k], 
+                            args=(u0_col, u1_col, s))
             xf[k+1] = sol.y[:, -1]
 
         return LabeledArray(xf, labels=self.xlabels)
 
-    def _dxdt_continuous(self,
-                         t: float,
-                         xi: np.ndarray,
-                         ui0: np.ndarray,
-                         ui1: np.ndarray,
-                         s: np.ndarray) -> np.ndarray:
+    def _dxdt(self, 
+              t: float, 
+              xi_flat: np.ndarray, 
+              u0: np.ndarray, 
+              u1: np.ndarray, 
+              s: np.ndarray) -> np.ndarray:
+        """Function for state derivative."""
         # FOH on controls
         alpha = (self.dt - t) / self.dt
         beta = t / self.dt
-        ui = alpha*ui0 + beta*ui1
-        return self.F(s, xi, ui)
+        ui = alpha * u0 + beta * u1
+        
+        # Reshape to either (nx, 1) or (nx, K-1)
+        xi = xi_flat.reshape((self.nx, -1))
+
+        # Evaluate dynamics and return flattened
+        Fi = self.F(s, xi, ui)
+        return Fi.ravel()
 
     def discretize(self, traj: Trajectory) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Integrate to compute the discretization of the dynamics."""
