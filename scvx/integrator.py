@@ -49,33 +49,58 @@ class Integrator:
         u = traj.u.T                           # (nu, K)
  
         x0 = x[:, :-1] # (nx, K-1)
+        xf = np.zeros_like(x) # (nx, K)
+        xf[:, 0] = x[:, 0] # Set first element
         sol = solve_ivp(fun = self._dxdt_piecewise,
                         t_span = (0, self.dt),
                         y0=x0.ravel(),
                         args=(u, s[:, :-1]))
-        xf = sol.y[:, -1].reshape((self.nx, self.K-1))
+        xf[:, 1:] = sol.y[:, -1].reshape((self.nx, self.K-1)) # Set last elements
         return LabeledArray(xf.T, labels=self.xlabels)
 
     def _dxdt_piecewise(self, 
                         t: float, 
                         xi_flat: np.ndarray, 
                         u: np.ndarray, 
-                        s: np.ndarray):
+                        s: np.ndarray) -> np.ndarray:
         xi = xi_flat.reshape((self.nx, self.K-1))
 
         # FOH on controls
         alpha = (self.dt - t) / self.dt
         beta = t / self.dt
-        ui = alpha*u[:, :-1] + beta[:, 1:] # (nu, K-1)
+        ui = alpha*u[:, :-1] + beta*u[:, 1:] # (nu, K-1)
 
         # Calculate and return
         Fi = self.F(s, xi, ui).reshape((self.nx, self.K-1))
         return Fi.ravel()
 
-
     def integrate_continuous(self, traj: Trajectory) -> LabeledArray:
         """Integrate the nonlinear dynamics continously across the time horizon from the initial state."""
-        pass
+        s = traj.sigma
+        x = traj.x
+        u = traj.u
+        xf = np.zeros_like(x)
+        xf[0] = x[0]
+        for k in range(self.K-1):
+            sol = solve_ivp(fun = self._dxdt_continuous,
+                            t_span = (0, self.dt),
+                            y0=xf[k],
+                            args=(u[k], u[k+1], s))
+            xf[k+1] = sol.y[:, -1]
+
+        return LabeledArray(xf, labels=self.xlabels)
+
+    def _dxdt_continuous(self,
+                         t: float,
+                         xi: np.ndarray,
+                         ui0: np.ndarray,
+                         ui1: np.ndarray,
+                         s: np.ndarray) -> np.ndarray:
+        # FOH on controls
+        alpha = (self.dt - t) / self.dt
+        beta = t / self.dt
+        ui = alpha*ui0 + beta*ui1
+        return self.F(s, xi, ui)
 
     def discretize(self, traj: Trajectory) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Integrate to compute the discretization of the dynamics."""
@@ -130,7 +155,7 @@ class Integrator:
         # FOH on controls
         alpha = (self.dt - t) / self.dt
         beta = t / self.dt
-        ui = alpha*u[:, :-1] + beta[:, 1:] # (nu, K-1)
+        ui = alpha*u[:, :-1] + beta*u[:, 1:] # (nu, K-1)
 
         # Reshape and split y into useful views
         yi = yi_flat.reshape((self.N, self.K-1))
