@@ -29,6 +29,15 @@ from dimmed_views import DimProp
 # x = np.arange(5*10).reshape((10, 5))
 # # (a, b, c) = np.split(x, [0, 1, 2])
 # print(np.split(x, [1, 3, 5], axis=-1))
-x = np.eye(5)
-y = LabeledArray(x, ['A', 'B', 'C', 'D', 'E'])
-print(y[:, ['A']])
+# x = np.eye(5)
+# y = LabeledArray(x, ['A', 'B', 'C', 'D', 'E'])
+# print(y[:, ['A']])
+
+x = np.arange(-6, 6).reshape((3, 4))
+print(x)
+# print(np.linalg.norm(x, ord=1))
+# print(np.linalg.norm(x.T, ord=1))
+
+# print(np.sum(np.abs(x), axis=1))
+print(np.abs(x).sum())
+print(cvx.square(x).value)
