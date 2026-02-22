@@ -46,13 +46,13 @@ class Model(ABC):
         raise NotImplementedError
     
     @abstractmethod
-    def get_objective(self, traj: SymbolicTrajectory) -> cvx.Expression:
+    def get_objective(self, traj: SymbolicTrajectory) -> cvx.Minimize:
         """
-        [Called Once] Returns the problem objective function Expression---the thing to be minimized. Note: must be constructed with 
+        [Called Once] Returns the problem Objective Object---the thing to be minimized. Note: must be constructed with 
         normalized and nondimensionalized coefficients appropriately. 
         
         :param traj: SymbolicTrajectory containing parameterized auxilliary, state, and control arrays and their differences.
-        :return: CVXPY Expression.
+        :return: CVXPY Minimize.
         """
         raise NotImplementedError
     
