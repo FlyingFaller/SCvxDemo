@@ -42,7 +42,7 @@ class Integrator:
 
     def integrate_multiple_shooting(self, traj: Trajectory) -> LabeledArray:
         """Integrate the nonlinear dynamics piecewise across each subinterval (Multiple Shooting)."""
-        s = np.tile(traj.sigma, (self.K, 1)).T # (ns, K)
+        s = np.tile(traj.s, (self.K, 1)).T     # (ns, K)
         x = traj.x.T                           # (nx, K)
         u = traj.u.T                           # (nu, K)
  
@@ -63,7 +63,7 @@ class Integrator:
 
     def integrate_single_shooting(self, traj: Trajectory) -> LabeledArray:
         """Integrate the nonlinear dynamics sequentially across the time horizon (Single Shooting)."""
-        s = traj.sigma[:, None] # Use [:, None] to columnate
+        s = traj.s[:, None] # Use [:, None] to columnate
         x = traj.x
         u = traj.u
         xf = np.zeros_like(x) # (K, nx)
@@ -104,7 +104,7 @@ class Integrator:
     def discretize(self, traj: Trajectory) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Integrate to compute the discretization of the dynamics."""
         # State-major order to avoid transposing in _dydt
-        s = np.tile(traj.sigma, (self.K, 1)).T # (ns, K)
+        s = np.tile(traj.s, (self.K, 1)).T     # (ns, K)
         x = traj.x.T                           # (nx, K)
         u = traj.u.T                           # (nu, K)
 

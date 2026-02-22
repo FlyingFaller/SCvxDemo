@@ -10,14 +10,14 @@ class Trajectory:
     """
     x: LabeledArray    
     u: LabeledArray    
-    sigma: LabeledArray
+    s: LabeledArray
 
     @classmethod
     def zeros(cls, K, nx, nu, ns=0, xlabels=None, ulabels=None, slabels=None):
         return cls(
             x=LabeledArray(np.zeros((K, nx)), xlabels),
             u=LabeledArray(np.zeros((K, nu)), ulabels),
-            sigma=LabeledArray(np.zeros(ns), slabels)
+            s=LabeledArray(np.zeros(ns), slabels)
         )
 
 # Sigma of size zero implise a fixed-final-time problem
@@ -35,18 +35,18 @@ class SymbolicTrajectory:
         self.u = LabeledVariable((K, nu), labels=ulabels, name='u')
         
         if ns > 0:
-            self.sigma = LabeledVariable((ns), labels=slabels, name='sigma')
-            self.sigma_last = LabeledParameter((ns), labels=slabels, name='sigma_last')
+            self.s = LabeledVariable((ns), labels=slabels, name='sigma')
+            self.s_last = LabeledParameter((ns), labels=slabels, name='sigma_last')
         else:
-            self.sigma = np.zeros(0)
-            self.sigma_last = np.zeros(0)
+            self.s = np.zeros(0)
+            self.s_last = np.zeros(0)
 
         self.x_last = LabeledParameter((K, nx), labels=xlabels, name='x_last')
         self.u_last = LabeledParameter((K, nu), labels=ulabels, name='u_last')
 
         self.dx = LabeledExpression(self.x - self.x_last, labels=xlabels)
         self.du = LabeledExpression(self.u - self.u_last, labels=ulabels)
-        self.dsigma = LabeledExpression(self.sigma - self.sigma_last, labels=slabels)
+        self.ds = LabeledExpression(self.s - self.s_last, labels=slabels)
 
 
     def set_parameters(self, traj: Trajectory):
@@ -55,7 +55,7 @@ class SymbolicTrajectory:
         self.u_last.value = traj.u
         
         if self.ns > 0:
-            self.sigma_last.value = traj.sigma
+            self.s_last.value = traj.s
 
     def get_result(self, update_params: bool = True) -> Trajectory:
         """
@@ -67,7 +67,7 @@ class SymbolicTrajectory:
         new_traj = Trajectory(
             x=LabeledArray(self.x.value, labels=self.xlabels),
             u=LabeledArray(self.u.value, labels=self.ulabels),
-            sigma=LabeledArray(self.sigma.value, labels=self.slabels) if self.ns > 0 else np.zeros(0)
+            s=LabeledArray(self.s.value, labels=self.slabels) if self.ns > 0 else np.zeros(0)
         )
 
         if update_params:
