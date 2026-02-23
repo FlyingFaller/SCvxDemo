@@ -57,30 +57,28 @@ class SCvxProblem:
         self.history = [model.init_trajectory(Trajectory.zeros(model.K, model.nx, model.nu, model.ns, 
                                                                model.xlabels, model.ulabels, model.slabels))]
 
-    def solve(self):
-        # In loop:
-        #   loop update STCs w/ old traj
-        #   compute Ak...wk with Integrator and set value of parameters
-        #   set params in SymTraj with old traj
-        #   solve problem
-        #   check problem solved (not INFEASIBLE)
-        #   save solution traj to history
-        #   check if J_vc.value AND J_tr value are below required tolerances to exit
+    def solve(self, **kwargs):
+        solved = False
+        for _ in range(self.m.max_iters):
+            prev_traj = self.history[-1]
 
-        # Need to construct the problem first:
-        #   constraints + objective
-        # constraints:
-        #   * using SymTraj and Ak, Bmk, Bpk, Sk, wk parameters and vk vars
-        #     construct dynamics constraints
-        #   * get STC obj list, loop through and construct list of wrapped STC
-        #     Constraint objects
-        #   * loop through and update STCs using old Trajectory obj
-        #   * get constraints list from model
-        # objective:
-        #   * get model obj
-        #   * sum vk variables
-        #   * need to somehow compute the composite z = [s, x, u] and then the
-        #     difference between the prev trajectory z, dz, for all k in K. 
-        #   * compute tr cost, maybe look for different formula for that quadratic sum?
-        #     Does s need to be duplicated? Can s, x, u be summed seperately?
-        pass
+            self.symtraj.set_parameters(prev_traj)
+
+            for stc in self.stcs: stc.update(prev_traj)
+
+            Ak, Bkm, Bkp, Sk, wk = self.integrator.discretize(prev_traj)
+            self.Ak_param.value = Ak 
+            self.Bkm_param.value = Bkm
+            self.Bkp_param.value = Bkp
+            self.Sk_param.value = Sk
+            self.wk_param.value = wk
+
+            self.problem.solve(solver='CLARABEL', **kwargs)
+
+            self.history.append(self.symtraj.get_result(update_params=False))
+
+            if self.J_vc.value < self.m.tol_vc and self.J_tr.value < self.m.tol_tr:
+                solved = True
+                break
+
+        return solved
