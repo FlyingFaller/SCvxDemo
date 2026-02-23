@@ -3,6 +3,7 @@ from labeled_views import LabeledArray, LabeledParameter, LabeledVariable, Label
 from labeled_dim_view import LabeledDimArray
 import cvxpy as cvx
 from dimmed_views import DimProp
+import sympy as sp
 
 # states = ['t', 'px', 'py', 'pz']
 # scalars = [1, 2, 3, 4]
@@ -33,11 +34,14 @@ from dimmed_views import DimProp
 # y = LabeledArray(x, ['A', 'B', 'C', 'D', 'E'])
 # print(y[:, ['A']])
 
-x = np.arange(-6, 6).reshape((3, 4))
-print(x)
-# print(np.linalg.norm(x, ord=1))
-# print(np.linalg.norm(x.T, ord=1))
+# x = np.arange(-6, 6).reshape((3, 4))
+# print(x)
+# # print(np.linalg.norm(x, ord=1))
+# # print(np.linalg.norm(x.T, ord=1))
 
-# print(np.sum(np.abs(x), axis=1))
-print(np.abs(x).sum())
-print(cvx.square(x).value)
+# # print(np.sum(np.abs(x), axis=1))
+# print(np.abs(x).sum())
+# print(cvx.square(x).value)
+
+s = sp.Matrix(sp.symbols([], real=True))
+print(s)
