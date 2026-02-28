@@ -10,7 +10,7 @@ class AuxVariable:
                  name: str, 
                  shape: int|tuple, 
                  local: bool = True,
-                 w_tr: float = 0.0,
+                 w_tr: float|np.ndarray|None = None,
                  labels: list[str]|None = None,
                  **cvx_kwargs):
         
