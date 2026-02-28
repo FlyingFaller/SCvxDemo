@@ -1,7 +1,7 @@
 from model import Model
 from integrator import Integrator
 from stc import StateTriggeredConstraint
-from trajectory import Trajectory, SymbolicTrajectory
+from trajectory import Trajectory, CvxTrajectory
 from labeled_views import LabeledArray
 import cvxpy as cvx
 import numpy as np
@@ -15,7 +15,7 @@ class SCvxProblem:
         self.integrator = Integrator(model)
 
         # Stores current trajectory, past trajectory parameters, and difference
-        self.symtraj = SymbolicTrajectory(model.K, model.nx, model.nu, model.ns, 
+        self.symtraj = CvxTrajectory(model.K, model.nx, model.nu, model.ns, 
                                           model.xlabels, model.ulabels, model.slabels)
         
         # Discretization parameters

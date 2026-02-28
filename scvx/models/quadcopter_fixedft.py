@@ -1,5 +1,5 @@
 from model import Model
-from scvx.scvx import SCvxProblem
+from scvx import SCvxProblem
 from dimmed_views import DimProp
 from labeled_dim_view import LabeledDimArray
 from labeled_views import LabeledArray, LabeledVariable, LabeledParameter
@@ -8,22 +8,23 @@ import cvxpy as cvx
 import numpy as np
 
 class QuadcopterFixedFT(Model):
+    nx = 6 # pos, vel
+    nu = 3 # trust vec
+    ns = 0 # Nothing involved in physics
+
+    xlabels = ['px', 'py', 'pz', 'vx', 'vy', 'vz']
+    ulabels = ['Tx', 'Ty', 'Tz']
+
+    max_iters = 10
+    tol_vc = 1e-7
+    tol_tr = 5e-3
+    w_vc = 1e4
+    w_tr = np.diag((nx + nu + ns)*[0.5])
+
+    K = 20
+
     def __init__(self):
         # REQUIRED STUFF
-        self.nx = 6 # pos, vel
-        self.nu = 3 # trust vec
-        self.ns = 0 # Nothing involved in physics
-
-        self.xlabels = ['px', 'py', 'pz', 'vx', 'vy', 'vz']
-        self.ulabels = ['Tx', 'Ty', 'Tz']
-
-        self.max_iters = 10
-        self.tol_vc = 1e-7
-        self.tol_tr = 5e-3
-        self.w_vc = 1e4
-        self.w_tr = np.array((self.nx + self.nu + self.ns)*[0.5])
-
-        self.K = 20
 
         # MODEL STUFF
         # Scales
@@ -77,7 +78,8 @@ class QuadcopterFixedFT(Model):
         F = sp.simplify(self.tf*sp.Matrix([v, a])) # scale by time
         A = sp.simplify(F.jacobian(x))
         B = sp.simplify(F.jacobian(u))
-        S = sp.simplify(F.jacobian(s))
+        # S = sp.simplify(F.jacobian(s))
+        S = sp.Matrix([])
 
         F_func = sp.lambdify((s, x, u), F, 'numpy')
         A_func = sp.lambdify((s, x, u), A, 'numpy')

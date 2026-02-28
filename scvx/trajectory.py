@@ -1,23 +1,56 @@
-import cvxpy as cvx
 import numpy as np
 from dataclasses import dataclass
 from labeled_views import LabeledArray, LabeledVariable, LabeledParameter, LabeledExpression
 
-@dataclass(frozen=True)
+class AuxVariable:
+    """
+    Container for auxilliary variable data registered by the problem.
+    """
+    def __init__(self, 
+                 name: str, 
+                 shape: int|tuple, 
+                 local: bool = True,
+                 w_tr: float = 0.0,
+                 labels: list[str]|None = None,
+                 **cvx_kwargs):
+        
+        self.name = name # Name of the variable, keep consistent!
+        self.shape = (shape,) if isinstance(shape, int) else shape
+        self.local = local # Whether there is 1 instance or K instances
+        self.w_tr = w_tr # Zero to no be included in trust region
+        self.labels = labels # Labels if multidimensional
+        self.cvx_kwargs = cvx_kwargs # Args to be passed toward CVXPY variable def
+
 class Trajectory:
     """
     Container for numerical trajectory data. 
     """
-    x: LabeledArray    
-    u: LabeledArray    
-    s: LabeledArray
+    def __init__(self,
+                 x: LabeledArray,
+                 u: LabeledArray,
+                 **aux_vars):
+        self.x = x
+        self.u = u
+        # kwargs of aux_var_name = LabeledArray 
+        for key, val in aux_vars.items():
+            setattr(self, key, val)
 
     @classmethod
-    def zeros(cls, K, nx, nu, ns=0, xlabels=None, ulabels=None, slabels=None):
+    def zeros(cls, K, nx, nu, xlabels=None, ulabels=None, 
+              aux_vars: list[AuxVariable] = None):
+        
+        aux_vars = aux_vars or []
+        aux_kwargs = {}
+        
+        # Build numerical arrays for auxiliary variables
+        for var in aux_vars:
+            shape = (K, *var.shape) if var.local else var.shape
+            aux_kwargs[var.name] = LabeledArray(np.zeros(shape), labels=var.labels)
+
         return cls(
-            x=LabeledArray(np.zeros((K, nx)), xlabels),
-            u=LabeledArray(np.zeros((K, nu)), ulabels),
-            s=LabeledArray(np.zeros(ns), slabels)
+            x=LabeledArray(np.zeros((K, nx)), labels=xlabels),
+            u=LabeledArray(np.zeros((K, nu)), labels=ulabels),
+            **aux_kwargs
         )
 
 # Sigma of size zero implise a fixed-final-time problem
@@ -25,28 +58,41 @@ class Trajectory:
 # A, B+, B-, S, and F, all temporally scaled regardless of fixed/free final
 # time
 
-class SymbolicTrajectory:
-    def __init__(self, K: int, nx: int, nu: int, ns: int = 0,
-                 xlabels = None, ulabels = None, slabels = None):
-        self.K, self.nx, self.nu, self.ns = K, nx, nu, ns
-        self.xlabels, self.ulabels, self.slabels = xlabels, ulabels, slabels
+class CvxTrajectory:
+    """
+    A container for the CVXPY symbolics and paramters that represent the trajetory.
+    """
+    def __init__(self, 
+                 K: int, 
+                 nx: int, 
+                 nu: int,
+                 xlabels = None, 
+                 ulabels = None,
+                 aux_vars: list[AuxVariable] = None):
+        
+        self.K, self.nx, self.nu= K, nx, nu
+        self.xlabels, self.ulabels= xlabels, ulabels
+        self.aux_vars_meta = aux_vars or []
 
         self.x = LabeledVariable((K, nx), labels=xlabels, name='x')
         self.u = LabeledVariable((K, nu), labels=ulabels, name='u')
-        
-        if ns > 0:
-            self.s = LabeledVariable((ns), labels=slabels, name='sigma')
-            self.s_last = LabeledParameter((ns), labels=slabels, name='sigma_last')
-        else:
-            self.s = np.zeros(0)
-            self.s_last = np.zeros(0)
 
         self.x_last = LabeledParameter((K, nx), labels=xlabels, name='x_last')
         self.u_last = LabeledParameter((K, nu), labels=ulabels, name='u_last')
 
         self.dx = LabeledExpression(self.x - self.x_last, labels=xlabels)
         self.du = LabeledExpression(self.u - self.u_last, labels=ulabels)
-        self.ds = LabeledExpression(self.s - self.s_last, labels=slabels)
+        
+        for var in self.aux_vars_meta:
+            actual_shape = (K, *var.shape) if var.local else var.shape
+            cvx_var = LabeledVariable(actual_shape, labels=var.labels,
+                                      name=var.name, **var.cvx_kwargs)
+            setattr(self, var.name, cvx_var)
+            cvx_param = LabeledParameter(actual_shape, labels=var.labels,
+                                         name=f"{var.name}_last")
+            setattr(self, f"{var.name}_last", cvx_param)
+            cvx_diff = LabeledExpression(cvx_var - cvx_param, labels=var.labels)
+            setattr(self, f"d{var.name}", cvx_diff)
 
 
     def set_parameters(self, traj: Trajectory):
@@ -54,8 +100,9 @@ class SymbolicTrajectory:
         self.x_last.value = traj.x
         self.u_last.value = traj.u
         
-        if self.ns > 0:
-            self.s_last.value = traj.s
+        for var in self.aux_vars_meta:
+            param: LabeledParameter = getattr(self, f"{var.name}_last")
+            param.value = getattr(traj, var.name)
 
     def get_result(self, update_params: bool = True) -> Trajectory:
         """
@@ -64,10 +111,15 @@ class SymbolicTrajectory:
         if self.x.value is None:
             raise RuntimeError("Variables are None. Has the problem been solved?")
 
+        aux_kwargs = {}
+        for var in self.aux_vars_meta:
+            cvx_var: LabeledVariable = getattr(self, var.name)
+            aux_kwargs[var.name] = LabeledArray(cvx_var.value, labels=var.labels)
+
         new_traj = Trajectory(
             x=LabeledArray(self.x.value, labels=self.xlabels),
             u=LabeledArray(self.u.value, labels=self.ulabels),
-            s=LabeledArray(self.s.value, labels=self.slabels) if self.ns > 0 else np.zeros(0)
+            **aux_kwargs
         )
 
         if update_params:
