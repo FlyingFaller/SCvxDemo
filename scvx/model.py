@@ -131,13 +131,33 @@ class Model(ABC):
         """Penalty weight on virtual control usage."""
         raise NotImplementedError
 
+    # @property
+    # @abstractmethod
+    # def w_tr(self) -> np.ndarray:
+    #     """
+    #     Penalty weights on trust region violations for the core state and control variables.
+    #     Auxiliary variables define their own trust region penalties in the AuxVariable registry.
+        
+    #     Must be a Symmetric Positive Definite matrix of shape (nx+nu, nx+nu). 
+    #     """
+    #     raise NotImplementedError
+
     @property
     @abstractmethod
-    def w_tr(self) -> np.ndarray:
+    def w_tr_x(self) -> np.ndarray:
         """
-        Penalty weights on trust region violations for the core state and control variables.
-        Auxiliary variables define their own trust region penalties in the AuxVariable registry.
+        Penalty weights on trust region violations for the state variables.
         
-        Must be a Symmetric Positive Definite matrix of shape (nx+nu, nx+nu). 
+        Must be an array of length nx.
+        """
+        raise NotImplementedError
+    
+    @property
+    @abstractmethod
+    def w_tr_u(self) -> np.ndarray:
+        """
+        Penalty weights on trust region violations for the control variables.
+        
+        Must be an array of length nu.
         """
         raise NotImplementedError

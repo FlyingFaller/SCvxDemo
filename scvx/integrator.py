@@ -16,19 +16,27 @@ class Integrator:
         self.F, self.A, self.B = dyn_returns[:3]
         self.aux_jacs = dyn_returns[3] if len(dyn_returns) > 3 else {}
         
-        # This list guarantees deterministic argument ordering for *args
-        # type: list[str]
+        # Aux variables in dynamics, expected order for args
+        # type: list[str], list[Callable]
         self.aux_names = list(self.aux_jacs.keys())
+        self.aux_jac_funcs = list(self.aux_jacs.values())
         
-        # Store metadata for variables that matter to dynamics
+        # Store metadata for aux variables that are in dynamics, unordered!
         # type: dict[str, AuxVariable]
         self.aux_meta = {var.name: var for var in m.aux_vars if var.name in self.aux_names}
 
         # Precompute loop variables for maximum ODE hot-loop performance
-        self.aux_jac_funcs = [self.aux_jacs[name] for name in self.aux_names]
         self.aux_p = [int(np.prod(self.aux_meta[name].shape)) for name in self.aux_names]
         self.aux_idx = list(range(6, 6 + len(self.aux_names)))
         self.aux_out_shapes = [(self.nx, p, self.K-1) for p in self.aux_p]
+
+        # Aux variables must be "global" in dynamics. If they are local they are better 
+        # classified as state or control variables.
+        for name, var in self.aux_meta.items():
+            if var.local:
+                raise ValueError(f"AuxVariable '{name}' is marked as local but affects the continuous dynamics. "
+                                 "Local time-varying variables that dictate the dynamics must be formulated as "
+                                 "control variables.")
 
         self.dt = 1.0/(self.K-1)
         self.xlabels = m.xlabels
@@ -51,43 +59,11 @@ class Integrator:
             self.nx              # wk
         ]
         
-        # Allocate space in the ODE state for auxiliary Jacobians
-        # AuxVariable.shape only contains feature size (e.g., (3,)), 
-        for p in self.aux_p:
-            self.sizes.append(self.nx * p)
+        # Add allocation for aux vars 
+        for p in self.aux_p: self.sizes.append(self.nx * p)
 
         self.split_idxs = np.cumsum(self.sizes)[:-1]
-        self.N = np.sum(self.sizes)
-
-    def _prep_aux_args(self, traj: Trajectory) -> tuple[tuple[np.ndarray, ...], tuple[np.ndarray, ...]]:
-        """
-        Prepares auxiliary variables for integration by splitting them into 
-        start (aux0) and end (aux1) values for the K-1 intervals.
-        
-        Returns:
-            aux0_tuple: Tuple of arrays representing start values for each interval.
-            aux1_tuple: Tuple of arrays representing end values for each interval.
-        """
-        aux0_list = []
-        aux1_list = []
-        
-        for name in self.aux_names:
-            var_meta = self.aux_meta[name]
-            val = getattr(traj, name) # The numerical data array
-            
-            if var_meta.local:
-                # Shape (K, *shape) -> (*shape, K) for vectorized time indexing
-                val_reshaped = np.moveaxis(val, 0, -1)
-                # Pre-slice arrays here to completely remove slicing from ODE hot loops
-                aux0_list.append(val_reshaped[..., :-1])
-                aux1_list.append(val_reshaped[..., 1:])
-            else:
-                # Static global variable: shape (*shape) -> (*shape, 1)
-                val_reshaped = val[..., None]
-                aux0_list.append(val_reshaped)
-                aux1_list.append(val_reshaped)
-                
-        return tuple(aux0_list), tuple(aux1_list)
+        self.N = np.sum(self.sizes) # Total allocation size for each K integration problem
 
     def integrate_multiple_shooting(self, traj: Trajectory) -> LabeledArray:
         """Integrate the nonlinear dynamics piecewise across each subinterval (Multiple Shooting)."""
@@ -102,12 +78,12 @@ class Integrator:
         u0 = u[:, :-1] # (nu, K-1)
         u1 = u[:, 1:]  # (nu, K-1)
         
-        aux0, aux1 = self._prep_aux_args(traj)
+        aux_args = [getattr(traj, name) for name in self.aux_names]
         
         sol = solve_ivp(fun = self._dxdt,
                         t_span = (0, self.dt),
                         y0=x0.ravel(),
-                        args=(u0, u1, aux0, aux1))
+                        args=(u0, u1, aux_args))
                         
         xf[:, 1:] = sol.y[:, -1].reshape((self.nx, self.K-1)) # Set last elements
         return LabeledArray(xf.T, labels=self.xlabels)
@@ -119,21 +95,17 @@ class Integrator:
         xf = np.zeros_like(x) # (K, nx)
         xf[0] = x[0]
         
-        aux0_full, aux1_full = self._prep_aux_args(traj)
+        aux_args = [getattr(traj, name) for name in self.aux_names]
         
         for k in range(self.K-1):
             # Pass controls as column vectors using [:, None]
             u0_col = u[k][:, None]
             u1_col = u[k+1][:, None]
             
-            # Slice auxiliary variables down to just the single specific interval
-            aux0_k = tuple(a0[..., k:k+1] for a0 in aux0_full)
-            aux1_k = tuple(a1[..., k:k+1] for a1 in aux1_full)
-            
             sol = solve_ivp(fun = self._dxdt,
                             t_span = (0, self.dt),
                             y0=xf[k], 
-                            args=(u0_col, u1_col, aux0_k, aux1_k))
+                            args=(u0_col, u1_col, aux_args))
                             
             xf[k+1] = sol.y[:, -1]
 
@@ -144,8 +116,7 @@ class Integrator:
               xi_flat: np.ndarray, 
               u0: np.ndarray, 
               u1: np.ndarray, 
-              aux0: tuple, 
-              aux1: tuple) -> np.ndarray:
+              aux_args: list) -> np.ndarray:
         """Function for state derivative."""
         # FOH on controls
         alpha = (self.dt - t) / self.dt
@@ -155,21 +126,14 @@ class Integrator:
         # Reshape to either (nx, 1) or (nx, K-1)
         xi = xi_flat.reshape((self.nx, -1))
 
-        # Fast FOH interpolation using list comprehension 
-        # (list comprehensions execute faster than generator expressions)
-        aux_t = [alpha * a0 + beta * a1 for a0, a1 in zip(aux0, aux1)]
-
-        # Pack positional args exactly as lambdify expects
-        args = [xi, ui] + aux_t
-
         # Evaluate dynamics and return flattened
-        Fi: np.ndarray = self.F(*args)
+        Fi = self.F(xi, ui, *aux_args)
         return Fi.ravel()
 
     def discretize(self, traj: Trajectory) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
         """Integrate to compute the discretization of the dynamics."""
-        x = traj.x.T                           # (nx, K)
-        u = traj.u.T                           # (nu, K)
+        x = traj.x.T # (nx, K)
+        u = traj.u.T # (nu, K)
 
         # Init integration vector, (N, K-1)
         y0 = np.zeros((self.N, self.K-1))
@@ -187,13 +151,13 @@ class Integrator:
         # Pre-slice parameters and controls to eliminate slices in hot loops
         u0 = u[:, :-1]
         u1 = u[:, 1:]
-        aux0, aux1 = self._prep_aux_args(traj)
+        aux_args = [getattr(traj, name) for name in self.aux_names]
 
         # Integrate
         sol = solve_ivp(fun = self._dydt,
                         t_span=(0, self.dt),
                         y0=y0.ravel(),
-                        args=(u0, u1, aux0, aux1))
+                        args=(u0, u1, aux_args))
         
         # Collect output and split
         yf = sol.y[:, -1].reshape((self.N, self.K-1))
@@ -223,8 +187,7 @@ class Integrator:
               yi_flat: np.ndarray, 
               u0: np.ndarray, 
               u1: np.ndarray, 
-              aux0: tuple, 
-              aux1: tuple) -> np.ndarray:
+              aux_args: list) -> np.ndarray:
         """Calculates the massive derivative of the discretization problem."""
         # FOH on controls
         alpha = (self.dt - t) / self.dt
@@ -250,18 +213,12 @@ class Integrator:
         dw   = parts_out[5] # (nx, K-1)
 
         # Avoid dynamic loops or property fetches within hot-loop
-        dS_list = [parts_out[idx].reshape(shape) for idx, shape in zip(self.aux_idx, self.aux_out_shapes)]
-
-        # Fast FOH interpolation using list comprehension
-        aux_t = [alpha * a0 + beta * a1 for a0, a1 in zip(aux0, aux1)]
-
-        # Pack arguments
-        args = [xi, ui] + aux_t
+        dS = [parts_out[idx].reshape(shape) for idx, shape in zip(self.aux_idx, self.aux_out_shapes)]
 
         # Get dynamics, reshaping F to (nx, K-1) in case User passes flat (nx,) for scalar shooting
-        Fi = self.F(*args).reshape((self.nx, self.K-1))
-        Ai = self.A(*args) # (nx, nx, K-1)
-        Bi = self.B(*args) # (nx, nu, K-1)
+        Fi = self.F(xi, ui, *aux_args).reshape((self.nx, self.K-1))
+        Ai = self.A(xi, ui, *aux_args) # (nx, nx, K-1)
+        Bi = self.B(xi, ui, *aux_args) # (nx, nu, K-1)
 
         # COMPUTE DERIVATIVES
         dxi[:] = Fi
@@ -287,13 +244,15 @@ class Integrator:
             Ss = np.zeros((self.nx, self.K-1))
             
             for i, jac_func in enumerate(self.aux_jac_funcs):
-                Si = jac_func(*args)
+                Si = jac_func(xi, ui, *aux_args)
                 
                 # dSi = Psii @ Si
-                np.einsum('ijk,jlk->ilk', Psii, Si, out=dS_list[i])
+                np.einsum('ijk,jlk->ilk', Psii, Si, out=dS[i])
                 
-                # S * s term for the wk residual calculation
-                Ss += np.einsum('ijk,jk->ik', Si, aux_t[i])
+                # S @ s term for the wk residual calculation
+                # we ravel aux_args just incase the user does something weird 
+                # like define a multi-dimensional global var
+                Ss += np.einsum('ijk,j->ik', Si, np.ravel(aux_args[i]))
                 
             residual = Fi - (Ax + Bu + Ss)
         else:
